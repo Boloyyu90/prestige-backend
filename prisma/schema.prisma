@@ -1,0 +1,202 @@
+// ======================================
+// Prisma Client & Datasource
+// ======================================
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ======================================
+// Enums
+// ======================================
+enum UserRole {
+  ADMIN
+  PARTICIPANT
+}
+
+enum ExamStatus {
+  IN_PROGRESS
+  FINISHED
+  CANCELLED
+  TIMEOUT
+}
+
+enum QuestionType {
+  TIU
+  TKP
+  TWK
+}
+
+enum ProctoringEventType {
+  FACE_NOT_DETECTED
+  MULTIPLE_FACES
+  PHONE_DETECTED
+}
+
+enum TokenType {
+  ACCESS
+  REFRESH
+  RESET_PASSWORD
+  VERIFY_EMAIL
+}
+
+// ======================================
+// Models
+// ======================================
+model User {
+  id              Int      @id @default(autoincrement())
+  name            String
+  email           String   @unique
+  password        String
+  role            UserRole @default(PARTICIPANT)
+  isEmailVerified Boolean  @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tokens       Token[]
+  createdExams Exam[]     @relation("ExamCreator")
+  userExams    UserExam[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model QuestionBank {
+  id            Int          @id @default(autoincrement())
+  content       String
+  options       Json
+  correctAnswer String       @map("correct_answer")
+  defaultScore  Int          @default(5) @map("default_score")
+  questionType  QuestionType @default(TIU) @map("question_type")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  examQuestions ExamQuestion[]
+
+  @@index([questionType])
+  @@map("question_bank")
+}
+
+model Exam {
+  id               Int       @id @default(autoincrement())
+  title            String
+  description      String?
+  startTime        DateTime? @map("start_time")
+  endTime          DateTime? @map("end_time")
+  durationMinutes  Int?      @map("duration_minutes")
+  shuffleQuestions Boolean   @default(false) @map("shuffle_questions")
+  shuffleOptions   Boolean   @default(false) @map("shuffle_options")
+  createdBy        Int       @map("created_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  examQuestions ExamQuestion[]
+  creator       User           @relation("ExamCreator", fields: [createdBy], references: [id])
+  userExams     UserExam[]
+
+  @@index([createdBy])
+  @@index([startTime])
+  @@map("exams")
+}
+
+model ExamQuestion {
+  id             Int      @id @default(autoincrement())
+  examId         Int      @map("exam_id")
+  questionId     Int      @map("question_id")
+  orderNumber    Int?     @map("order_number")
+  // Snapshot bobot untuk exam ini (fallback jika ingin "bekukan" skor)
+  effectiveScore Int?     @map("effective_score")
+  answers        Answer[]
+
+  exam     Exam         @relation(fields: [examId], references: [id])
+  question QuestionBank @relation(fields: [questionId], references: [id])
+
+  @@unique([examId, questionId])
+  @@unique([examId, orderNumber])
+  @@index([examId])
+  @@map("exam_questions")
+}
+
+model UserExam {
+  id            Int        @id @default(autoincrement())
+  userId        Int        @map("user_id")
+  examId        Int        @map("exam_id")
+  attemptNumber Int        @default(1) @map("attempt_number")
+  startedAt     DateTime?  @map("started_at")
+  finishedAt    DateTime?  @map("finished_at")
+  totalScore    Int?       @map("total_score")
+  status        ExamStatus @default(IN_PROGRESS)
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  // --- Ringkasan proctoring langsung di sesi (tanpa tabel terpisah)
+  faceNotDetectedSec Int?   @default(0) @map("face_not_detected_sec")
+  multipleFacesCount Int?   @default(0) @map("multiple_faces_count")
+  phoneDetectedCount Int?   @default(0) @map("phone_detected_count")
+  cheatingScore      Float? @map("cheating_score")
+
+  answers          Answer[]
+  proctoringEvents ProctoringEvent[]
+
+  exam Exam @relation(fields: [examId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, examId, attemptNumber])
+  @@index([userId, status])
+  @@index([examId, status])
+  @@map("user_exams")
+}
+
+model Answer {
+  id             Int      @id @default(autoincrement())
+  userExamId     Int      @map("user_exam_id")
+  examQuestionId Int      @map("exam_question_id")
+  selectedAnswer Json?    @map("selected_answer") // fleksibel TIU/TWK/TKP
+  obtainedScore  Int?     @map("obtained_score")
+  isCorrect      Boolean? @map("is_correct")
+  answeredAt     DateTime @default(now()) @map("answered_at")
+
+  examQuestion ExamQuestion @relation(fields: [examQuestionId], references: [id])
+  userExam     UserExam     @relation(fields: [userExamId], references: [id], onDelete: Cascade)
+
+  @@unique([userExamId, examQuestionId])
+  @@index([userExamId, answeredAt])
+  @@map("answers")
+}
+
+model ProctoringEvent {
+  id         Int                 @id @default(autoincrement())
+  userExamId Int                 @map("user_exam_id")
+  eventType  ProctoringEventType @map("event_type")
+  eventTime  DateTime            @default(now()) @map("event_time")
+  metadata   Json?
+
+  userExam UserExam @relation(fields: [userExamId], references: [id], onDelete: Cascade)
+
+  @@index([userExamId, eventTime]) // range scan per sesi
+  @@index([eventType, eventTime])
+  @@map("proctoring_events")
+}
+
+// Token tetap ada untuk opsi refresh; nonaktifkan di kode jika ingin pure access-token
+model Token {
+  id          Int       @id @default(autoincrement())
+  tokenHash   String
+  type        TokenType
+  expires     DateTime
+  blacklisted Boolean   @default(false)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  userId      Int       @map("user_id")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([tokenHash, type])
+  @@index([userId])
+  @@index([type])
+}
