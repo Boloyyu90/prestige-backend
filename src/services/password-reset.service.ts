@@ -41,16 +41,14 @@ export async function requestPasswordReset(emailRaw: string) {
 
     // Kirim email (link berisi token & uid)
     const resetUrl = `${config.app.publicBaseUrl}/v1/auth/reset-password?token=${raw}&uid=${user.id}`;
-    await mail.sendMail({
-        to: email,
-        subject: 'Reset your password',
-        html: `
+    const html = `
       <p>Halo ${user.name},</p>
       <p>Kamu meminta reset password. Klik tautan berikut untuk membuat password baru (berlaku 2 jam):</p>
       <p><a href="${resetUrl}">${resetUrl}</a></p>
       <p>Jika kamu tidak meminta ini, abaikan email ini.</p>
-    `,
-    });
+    `;
+
+    await mail.sendMail(email, 'Reset your password', html);
 }
 
 /** Konsumsi token, set password baru, blacklist reset token, dan logout semua sesi. */

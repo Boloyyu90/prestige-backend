@@ -199,4 +199,5 @@ model Token {
   @@unique([tokenHash, type])
   @@index([userId])
   @@index([type])
+  @@map("tokens")
 }

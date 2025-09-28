@@ -35,7 +35,7 @@ router.post(
 
 router.post(
     '/forgot-password',
-    simpleRateLimit((req: Request) => `fp:${req.ip}`),
+    simpleRateLimit(),
     validate(forgotPasswordSchema),
     c.forgotPassword
 );

@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
+import type { RequestHandler } from 'express';
 import httpStatus from 'http-status';
 import * as authSvc from '../services/auth.service';
 import * as verifySvc from '../services/email-verification.service';
 import * as resetSvc from '../services/password-reset.service';
+import * as emailSvc from '../services/email-verification.service';
 import type { AuthenticatedRequest } from '../middlewares/auth';
 
 export const register = async (req: Request, res: Response) => {
@@ -60,10 +62,10 @@ export const logout = async (req: Request, res: Response) => {
     return res.status(httpStatus.OK).json({ message: 'Logged out' });
 };
 
-export const sendVerificationEmail = async (req: AuthenticatedRequest, res: Response) => {
-    const userId = req.user.id;
-    const result = await verifySvc.sendVerificationEmail(userId);
-    return res.status(httpStatus.OK).json({ message: 'Verification email sent', ...result });
+export const sendVerificationEmail: RequestHandler = async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    await emailSvc.sendVerificationEmail(req.user.id);
+    return res.status(200).json({ message: 'Verification email sent' });
 };
 
 export const verifyEmail = async (req: Request, res: Response) => {
