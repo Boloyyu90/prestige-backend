@@ -7,7 +7,7 @@ import { createUserSchema, getUserSchema, updateUserSchema } from '../../validat
 const router = express.Router();
 
 router.post('/', auth('manageUsers'), validate(createUserSchema), c.createUser);
-router.get('/', auth('getUsers'), c.getUsers);
+router.get('/', auth('getUsers'), c.listUsers);
 router.get('/:userId', auth('getUsers'), validate(getUserSchema), c.getUser);
 router.patch('/:userId', auth('manageUsers'), validate(updateUserSchema), c.updateUser);
 router.delete('/:userId', auth('manageUsers'), validate(getUserSchema), c.deleteUser);

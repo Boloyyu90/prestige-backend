@@ -1,7 +1,9 @@
 import app from './app';
 import { config } from './config/config';
 
-app.listen(config.port, () => {
+const port = Number.isFinite(config.app.port) ? config.app.port : 3000;
+
+app.listen(port, () => {
     // eslint-disable-next-line no-console
-    console.log(`Server listening on ${config.port}`);
+    console.log(`Server listening on ${port}`);
 });

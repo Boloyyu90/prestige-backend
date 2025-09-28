@@ -8,6 +8,8 @@ import {
     registerSchema,
     verifyQuerySchema,
     resendVerificationPublicSchema,
+    forgotPasswordSchema,
+    resetPasswordSchema,
 } from '../../validations/auth.validation';
 import { simpleRateLimit } from '../../middlewares/rateLimit';
 
@@ -30,6 +32,17 @@ router.post(
     validate(resendVerificationPublicSchema),
     c.resendVerificationPublic,
 );
+
+router.post(
+    '/forgot-password',
+    simpleRateLimit((req: Request) => `fp:${req.ip}`),
+    validate(forgotPasswordSchema),
+    c.forgotPassword
+);
+
+router.post('/reset-password', validate(resetPasswordSchema), c.resetPassword);
+
+
 
 // (opsional) test email transporter
 // router.get('/test-email', async (_req, res) => { ... })

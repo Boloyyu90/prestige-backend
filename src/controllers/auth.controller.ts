@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import httpStatus from 'http-status';
 import * as authSvc from '../services/auth.service';
 import * as verifySvc from '../services/email-verification.service';
+import * as resetSvc from '../services/password-reset.service';
 import type { AuthenticatedRequest } from '../middlewares/auth';
 
 export const register = async (req: Request, res: Response) => {
@@ -96,3 +97,26 @@ export const resendVerificationPublic = async (req: Request, res: Response) => {
         return res.status(httpStatus.OK).json({ message: 'If the email exists, a verification link has been sent.' });
     }
 };
+
+/** Forgot password → selalu 200 agar tidak bocorkan email terdaftar/tidak */
+export async function forgotPassword(req: Request, res: Response) {
+    const { email } = req.body;
+    try {
+        await resetSvc.requestPasswordReset(email);
+        return res.status(httpStatus.OK).json({ message: 'If that email exists, a reset link has been sent.' });
+    } catch (_err) {
+        // jangan bocorkan alasan
+        return res.status(httpStatus.OK).json({ message: 'If that email exists, a reset link has been sent.' });
+    }
+}
+
+/** Reset password pakai token single-use */
+export async function resetPassword(req: Request, res: Response) {
+    const { token, uid, newPassword } = req.body;
+    try {
+        await resetSvc.resetPassword(token, Number(uid), newPassword);
+        return res.status(httpStatus.OK).json({ message: 'Password has been reset. Please login again.' });
+    } catch (_err) {
+        return res.status(httpStatus.BAD_REQUEST).json({ message: 'Invalid or expired reset token' });
+    }
+}

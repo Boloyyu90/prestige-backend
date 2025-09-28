@@ -1,38 +1,39 @@
+// src/services/auth.service.ts
 import prisma from '../client';
 import { comparePassword, hashPassword } from '../utils/password';
 import { signAccessToken, generateRefreshToken, saveRefreshToken } from '../utils/jwt';
-import { config } from '../config/config';
-import type { UserRole } from '@prisma/client';
+import type { UserRole} from '@prisma/client';
 import * as verifySvc from './email-verification.service';
+
+
 
 export const register = async (
     name: string,
-    email: string,
+    rawEmail: string,
     password: string,
-    role?: UserRole,
+    _role?: UserRole,                 // abaikan role dari body (hanya bootstrap yg bisa ADMIN)
     adminBootstrapHeader?: string,
 ) => {
+    const email = rawEmail.toLowerCase();
+
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) throw new Error('Email already registered');
 
-    // Admin bootstrap (opsional sesuai header)
-    let finalRole: UserRole = role ?? 'PARTICIPANT';
-    if (adminBootstrapHeader && adminBootstrapHeader === process.env.ADMIN_BOOTSTRAP_SECRET) {
-        finalRole = 'ADMIN';
-    }
+    // ADMIN hanya via secret bootstrap; selain itu default PARTICIPANT
+    const isBootstrap = !!adminBootstrapHeader && adminBootstrapHeader === process.env.ADMIN_BOOTSTRAP_SECRET;
+    const finalRole: UserRole = isBootstrap ? 'ADMIN' : 'PARTICIPANT';
 
     const passwordHash = await hashPassword(password);
     const user = await prisma.user.create({
         data: { name, email, password: passwordHash, role: finalRole, isEmailVerified: false },
     });
 
-    // ⬅️ P1: kirim email verifikasi non-fatal (jangan jatuhkan register)
-    try {
-        await verifySvc.sendVerificationEmail(user.id);
-    } catch (err) {
+    // Kirim verifikasi (non-fatal)
+    verifySvc.sendVerificationEmail(user.id).catch((err) => {
+        // hindari jatuhin flow register karena SMTP
         // eslint-disable-next-line no-console
         console.warn('Verification email failed:', (err as any)?.message);
-    }
+    });
 
     const access = signAccessToken({
         sub: user.id,
@@ -51,7 +52,9 @@ export const register = async (
     };
 };
 
-export const login = async (email: string, password: string) => {
+export const login = async (rawEmail: string, password: string) => {
+    const email = rawEmail.toLowerCase();
+
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) throw new Error('Invalid credentials');
 
@@ -82,7 +85,6 @@ export const login = async (email: string, password: string) => {
 };
 
 export const refreshTokens = async (refreshToken: string) => {
-    // validasi & rotasi token dilakukan di utils/jwt (hash verif, blacklist dsb.)
     const { access, newRefresh } = await (await import('../utils/jwt')).rotateRefreshToken(refreshToken);
     return { access, refresh: newRefresh };
 };

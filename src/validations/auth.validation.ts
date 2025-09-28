@@ -35,3 +35,17 @@ export const resendVerificationPublicSchema = z.object({
         email: z.string().email(),
     }),
 });
+
+export const forgotPasswordSchema = z.object({
+    body: z.object({
+        email: z.string().email(),
+    }),
+});
+
+export const resetPasswordSchema = z.object({
+    body: z.object({
+        token: z.string().min(10),     // token raw dari email (hex panjang)
+        uid: z.coerce.number().int().positive(), // user id dari query/email link
+        newPassword: z.string().min(6),
+    }),
+});
