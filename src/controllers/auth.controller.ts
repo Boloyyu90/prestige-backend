@@ -1,13 +1,15 @@
 import { Request, Response } from 'express';
 import httpStatus from 'http-status';
-import * as svc from '../services/auth.service';
+import * as authSvc from '../services/auth.service';
 import * as verifySvc from '../services/email-verification.service';
+import type { AuthenticatedRequest } from '../middlewares/auth';
 
 export const register = async (req: Request, res: Response) => {
     try {
         const { name, email, password, role } = req.body;
         const bootstrapHeader = String(req.headers['x-admin-bootstrap'] ?? '');
-        const data = await svc.register(name, email, password, role, bootstrapHeader);
+        const data = await authSvc.register(name, email, password, role, bootstrapHeader);
+        // data.user + tokens dikembalikan; pengiriman email verifikasi non-fatal (ditangani di service)
         return res.status(httpStatus.CREATED).json({ message: 'Registered', ...data });
     } catch (e: any) {
         const msg = String(e?.message ?? '');
@@ -21,8 +23,8 @@ export const register = async (req: Request, res: Response) => {
 export const login = async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
-        const data = await svc.login(email, password);
-        res.status(httpStatus.OK).json({ message: 'Logged in', ...data });
+        const data = await authSvc.login(email, password);
+        return res.status(httpStatus.OK).json({ message: 'Logged in', ...data });
     } catch (e: any) {
         if (e?.code === 'EMAIL_NOT_VERIFIED') {
             return res.status(httpStatus.FORBIDDEN).json({
@@ -33,37 +35,64 @@ export const login = async (req: Request, res: Response) => {
         if (String(e?.message).includes('Invalid credentials')) {
             return res.status(httpStatus.UNAUTHORIZED).json({ message: 'Invalid credentials' });
         }
-        res.status(httpStatus.INTERNAL_SERVER_ERROR).json({ message: e?.message ?? 'Internal error' });
+        return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({ message: e?.message ?? 'Internal error' });
     }
 };
 
-
 export const refresh = async (req: Request, res: Response) => {
-    const { refreshToken } = req.body;
-    const tokens = await svc.refreshTokens(refreshToken);
-    res.status(httpStatus.OK).json({ message: 'Refreshed', tokens });
+    try {
+        const { refreshToken } = req.body as { refreshToken: string };
+        const tokens = await authSvc.refreshTokens(refreshToken);
+        return res.status(httpStatus.OK).json({ message: 'Refreshed', tokens });
+    } catch {
+        return res.status(httpStatus.UNAUTHORIZED).json({ message: 'Invalid or expired refresh token' });
+    }
 };
 
 export const logout = async (req: Request, res: Response) => {
-    const { refreshToken } = req.body;
-    await svc.logout(refreshToken);
-    res.status(httpStatus.OK).json({ message: 'Logged out' });
+    try {
+        const { refreshToken } = req.body as { refreshToken: string };
+        await authSvc.logout(refreshToken);
+    } catch {
+        // idempotent: walau token invalid/sudah dihapus, tetap 200
+    }
+    return res.status(httpStatus.OK).json({ message: 'Logged out' });
 };
 
-// NEW: resend verification (butuh login)
-export const sendVerificationEmail = async (req: Request, res: Response) => {
-    const userId = (req as any).user?.id as number;
+export const sendVerificationEmail = async (req: AuthenticatedRequest, res: Response) => {
+    const userId = req.user.id;
     const result = await verifySvc.sendVerificationEmail(userId);
-    res.status(httpStatus.OK).json({ message: 'Verification email sent', ...result });
+    return res.status(httpStatus.OK).json({ message: 'Verification email sent', ...result });
 };
 
-// NEW: verify
 export const verifyEmail = async (req: Request, res: Response) => {
     const { token, uid } = req.query as { token?: string; uid?: string };
     if (!token || !uid) {
         return res.status(httpStatus.BAD_REQUEST).json({ message: 'Missing token or uid' });
     }
     const userId = Number(uid);
-    const result = await verifySvc.verifyEmail(userId, token);
-    res.status(httpStatus.OK).json({ message: 'Email verified', ...result });
+    try {
+        const result = await verifySvc.verifyEmail(userId, token);
+        return res.status(httpStatus.OK).json({ message: 'Email verified', ...result });
+    } catch (e: any) {
+        return res.status(httpStatus.BAD_REQUEST).json({ message: e?.message ?? 'Invalid or expired token' });
+    }
+};
+
+/**
+ * P1-2: Endpoint PUBLIK untuk resend verification (tanpa login), dilindungi rate limit
+ * Body: { email: string }
+ */
+export const resendVerificationPublic = async (req: Request, res: Response) => {
+    const { email } = req.body as { email?: string };
+    if (!email) {
+        return res.status(httpStatus.BAD_REQUEST).json({ message: 'Email is required' });
+    }
+    try {
+        const result = await verifySvc.sendVerificationEmailByEmail(email);
+        return res.status(httpStatus.OK).json({ message: 'Verification email sent', ...result });
+    } catch (e: any) {
+        // Jangan bocorkan apakah email terdaftar (untuk keamanan)
+        return res.status(httpStatus.OK).json({ message: 'If the email exists, a verification link has been sent.' });
+    }
 };

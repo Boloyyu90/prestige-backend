@@ -145,7 +145,7 @@ model UserExam {
   proctoringEvents ProctoringEvent[]
 
   exam Exam @relation(fields: [examId], references: [id])
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, examId, attemptNumber])
   @@index([userId, status])
@@ -194,7 +194,7 @@ model Token {
   createdAt   DateTime  @default(now()) @map("created_at")
   userId      Int       @map("user_id")
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([tokenHash, type])
   @@index([userId])
