@@ -37,7 +37,7 @@ export const auth = (...required: Right[]) => {
             };
 
             // Hanya ACCESS token yang valid
-            if (payload.type && payload.type !== 'ACCESS') {
+            if (!payload.type || payload.type !== 'ACCESS') {
                 return res.status(httpStatus.UNAUTHORIZED).json({ message: 'Invalid token type' });
             }
 

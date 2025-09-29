@@ -14,12 +14,14 @@ export const register = async (req: Request, res: Response) => {
         const data = await authSvc.register(name, email, password, role, bootstrapHeader);
         // data.user + tokens dikembalikan; pengiriman email verifikasi non-fatal (ditangani di service)
         return res.status(httpStatus.CREATED).json({ message: 'Registered', ...data });
-    } catch (e: any) {
-        const msg = String(e?.message ?? '');
-        if (msg.includes('Email already registered')) {
+    } catch (e: unknown) {  // Change from 'any' to 'unknown'
+        const message = e instanceof Error ? e.message : 'Unknown error';
+        if (message.includes('Email already registered')) {
             return res.status(httpStatus.CONFLICT).json({ message: 'Email already registered' });
         }
-        return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({ message: msg || 'Internal error' });
+        return res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+            message: message || 'Internal error'
+        });
     }
 };
 

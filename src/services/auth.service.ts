@@ -5,8 +5,6 @@ import { signAccessToken, generateRefreshToken, saveRefreshToken } from '../util
 import type { UserRole} from '@prisma/client';
 import * as verifySvc from './email-verification.service';
 
-
-
 export const register = async (
     name: string,
     rawEmail: string,

@@ -46,23 +46,29 @@ export async function sendVerificationEmail(userId: number) {
 }
 
 export async function sendVerificationEmailByEmail(email: string) {
-    const user = await prisma.user.findUnique({ where: { email } });
+    // ADD: Normalize email to lowercase
+    const normalizedEmail = email.toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) throw new Error('User not found');
     return sendVerificationEmail(user.id);
 }
 
 export async function verifyEmail(userId: number, rawToken: string) {
     const tokenHash = sha256(rawToken);
-    const token = await prisma.token.findFirst({
-        where: { userId, type: 'VERIFY_EMAIL', tokenHash, blacklisted: false },
+
+    // Use transaction from the start to prevent race condition
+    return await prisma.$transaction(async (tx) => {
+        const token = await tx.token.findFirst({
+            where: { userId, type: 'VERIFY_EMAIL', tokenHash, blacklisted: false },
+        });
+
+        if (!token) throw new Error('Invalid or expired token');
+        if (isAfter(new Date(), token.expires)) throw new Error('Invalid or expired token');
+
+        // Update both in same transaction
+        await tx.user.update({ where: { id: userId }, data: { isEmailVerified: true } });
+        await tx.token.update({ where: { id: token.id }, data: { blacklisted: true } });
+
+        return { userId, verified: true };
     });
-    if (!token) throw new Error('Invalid or expired token');
-    if (isAfter(new Date(), token.expires)) throw new Error('Invalid or expired token');
-
-    await prisma.$transaction([
-        prisma.user.update({ where: { id: userId }, data: { isEmailVerified: true } }),
-        prisma.token.update({ where: { id: token.id }, data: { blacklisted: true } }),
-    ]);
-
-    return { userId, verified: true };
 }
