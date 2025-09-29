@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import httpStatus from 'http-status';
 import * as examService from '../services/exam.service';
-import * as userExamService from '../services/user-exam.service';
 
 export async function createExam(req: Request, res: Response, next: NextFunction) {
     try {
@@ -72,57 +71,6 @@ export async function addQuestions(req: Request, res: Response, next: NextFuncti
 
         await examService.addQuestionsToExam(examId, questionIds, effectiveScores);
         return res.status(httpStatus.OK).json({ message: 'Questions added to exam' });
-    } catch (error) {
-        return next(error);
-    }
-}
-
-export async function startExam(req: Request, res: Response, next: NextFunction) {
-    try {
-        const examId = Number(req.params.examId);
-        const result = await userExamService.startExam(req.user!.id, examId);
-        return res.status(httpStatus.OK).json({ message: 'Exam started', data: result });
-    } catch (error) {
-        return next(error);
-    }
-}
-
-export async function submitAnswer(req: Request, res: Response, next: NextFunction) {
-    try {
-        const userExamId = Number(req.params.userExamId);
-        const examQuestionId = Number(req.params.questionId);
-        const { selectedAnswer } = req.body;
-
-        const answer = await userExamService.submitAnswer(
-            req.user!.id,
-            userExamId,
-            examQuestionId,
-            selectedAnswer
-        );
-
-        return res.status(httpStatus.OK).json({ message: 'Answer submitted', data: answer });
-    } catch (error) {
-        return next(error);
-    }
-}
-
-export async function finishExam(req: Request, res: Response, next: NextFunction) {
-    try {
-        const userExamId = Number(req.params.userExamId);
-        const { forceFinish } = req.body;
-
-        const result = await userExamService.finishExam(req.user!.id, userExamId, forceFinish);
-        return res.status(httpStatus.OK).json({ message: 'Exam finished', data: result });
-    } catch (error) {
-        return next(error);
-    }
-}
-
-export async function getProgress(req: Request, res: Response, next: NextFunction) {
-    try {
-        const userExamId = Number(req.params.userExamId);
-        const progress = await userExamService.getExamProgress(req.user!.id, userExamId);
-        return res.status(httpStatus.OK).json({ data: progress });
     } catch (error) {
         return next(error);
     }
