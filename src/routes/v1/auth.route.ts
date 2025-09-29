@@ -17,7 +17,7 @@ const router: import('express').Router = Router();
 
 // Auth core
 router.post('/register', validate(registerSchema), c.register);
-router.post('/login', validate(loginSchema), c.login);
+router.post('/login', simpleRateLimit(), validate(loginSchema), c.login);
 router.post('/refresh-tokens', validate(refreshSchema), c.refresh);
 router.post('/logout', validate(refreshSchema), c.logout);
 

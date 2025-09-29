@@ -92,12 +92,11 @@ export const resendVerificationPublic = async (req: Request, res: Response) => {
         return res.status(httpStatus.BAD_REQUEST).json({ message: 'Email is required' });
     }
     try {
-        const result = await verifySvc.sendVerificationEmailByEmail(email);
-        return res.status(httpStatus.OK).json({ message: 'Verification email sent', ...result });
-    } catch (e: any) {
+        await verifySvc.sendVerificationEmailByEmail(email);
+    } catch (_err: any) {
         // Jangan bocorkan apakah email terdaftar (untuk keamanan)
-        return res.status(httpStatus.OK).json({ message: 'If the email exists, a verification link has been sent.' });
     }
+    return res.status(httpStatus.OK).json({ message: 'If the email exists, a verification link has been sent.' });
 };
 
 /** Forgot password → selalu 200 agar tidak bocorkan email terdaftar/tidak */

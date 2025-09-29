@@ -10,13 +10,15 @@ export const createUser = async (args: {
 }) => {
     const { name, email, password, role = 'PARTICIPANT' } = args;
 
-    const exists = await prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = email.toLowerCase();
+
+    const exists = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (exists) throw new Error('Email already registered');
 
     const passwordHash = await hashPassword(password);
 
     return prisma.user.create({
-        data: { name, email, password: passwordHash, role, isEmailVerified: true },
+        data: { name, email: normalizedEmail, password: passwordHash, role, isEmailVerified: true },
         select: { id: true, name: true, email: true, role: true, isEmailVerified: true, createdAt: true },
     });
 };
@@ -46,10 +48,12 @@ export const updateUser = async (
     data: { name?: string; email?: string; password?: string },
 ) => {
     if (data.email) {
-        const existing = await prisma.user.findUnique({ where: { email: data.email } });
+        const normalizedEmail = data.email.toLowerCase();
+        const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
         if (existing && existing.id !== id) {
             throw new Error('Email already registered');
         }
+        data.email = normalizedEmail;
     }
 
     const patch: Prisma.UserUpdateInput = {};
