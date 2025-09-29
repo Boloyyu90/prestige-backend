@@ -1,20 +1,28 @@
 import prisma from '../client';
 import type { QuestionType } from '../types/prisma';
+import { Errors } from '../utils/errors';
+import { sanitizeContent, sanitizeSearchQuery } from '../utils/sanitize';
 
 interface CreateQuestionData {
     content: string;
-    options: any; // Json
+    options: any;
     correctAnswer: any;
     defaultScore?: number;
     questionType: QuestionType;
 }
 
 export async function createQuestion(data: CreateQuestionData) {
-    return prisma.questionBank.create({ data });
+    // Sanitize content
+    const sanitizedData = {
+        ...data,
+        content: sanitizeContent(data.content)
+    };
+
+    return prisma.questionBank.create({ data: sanitizedData });
 }
 
 export async function getQuestionById(id: number) {
-    return prisma.questionBank.findUnique({
+    const question = await prisma.questionBank.findUnique({
         where: { id },
         include: {
             _count: {
@@ -22,6 +30,9 @@ export async function getQuestionById(id: number) {
             }
         }
     });
+
+    if (!question) throw Errors.NotFound('Question not found');
+    return question;
 }
 
 export async function listQuestions(filters?: {
@@ -35,8 +46,9 @@ export async function listQuestions(filters?: {
     }
 
     if (filters?.search) {
+        const sanitizedSearch = sanitizeSearchQuery(filters.search);
         where.content = {
-            contains: filters.search,
+            contains: sanitizedSearch,
             mode: 'insensitive'
         };
     }
@@ -53,38 +65,61 @@ export async function listQuestions(filters?: {
 }
 
 export async function updateQuestion(id: number, data: Partial<CreateQuestionData>) {
+    // Check if question exists
+    const existing = await prisma.questionBank.findUnique({ where: { id } });
+    if (!existing) throw Errors.NotFound('Question not found');
+
     // Check if question is used in any exam
     const usageCount = await prisma.examQuestion.count({
         where: { questionId: id }
     });
 
     if (usageCount > 0 && data.defaultScore !== undefined) {
-        // Warning: changing default score won't affect existing exams with effectiveScore
         console.warn(`Changing defaultScore for question ${id} used in ${usageCount} exams`);
     }
 
+    // Sanitize content if provided
+    const sanitizedData: any = {};
+    if (data.content) sanitizedData.content = sanitizeContent(data.content);
+    if (data.options !== undefined) sanitizedData.options = data.options;
+    if (data.correctAnswer !== undefined) sanitizedData.correctAnswer = data.correctAnswer;
+    if (data.defaultScore !== undefined) sanitizedData.defaultScore = data.defaultScore;
+    if (data.questionType !== undefined) sanitizedData.questionType = data.questionType;
+
     return prisma.questionBank.update({
         where: { id },
-        data
+        data: sanitizedData
     });
 }
 
 export async function deleteQuestion(id: number) {
+    // Check if question exists
+    const existing = await prisma.questionBank.findUnique({ where: { id } });
+    if (!existing) throw Errors.NotFound('Question not found');
+
     // Check if question is used in any exam
     const usageCount = await prisma.examQuestion.count({
         where: { questionId: id }
     });
 
     if (usageCount > 0) {
-        throw new Error(`Cannot delete question used in ${usageCount} exam(s)`);
+        throw Errors.BadRequest(`Cannot delete question used in ${usageCount} exam(s)`);
     }
 
     return prisma.questionBank.delete({ where: { id } });
 }
 
 export async function bulkImportQuestions(questions: CreateQuestionData[]) {
-    return prisma.questionBank.createMany({
-        data: questions,
+    // Sanitize all contents
+    const sanitizedQuestions = questions.map(q => ({
+        ...q,
+        content: sanitizeContent(q.content)
+    }));
+
+    const result = await prisma.questionBank.createMany({
+        data: sanitizedQuestions,
         skipDuplicates: true
     });
+
+    return result;
 }

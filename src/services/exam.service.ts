@@ -1,5 +1,6 @@
 import prisma from '../client';
-import { Prisma, ExamStatus } from '@prisma/client';
+import { Errors } from '../utils/errors';
+import { sanitizeString, sanitizeContent } from '../utils/sanitize';
 
 interface CreateExamData {
     title: string;
@@ -15,11 +16,18 @@ interface CreateExamData {
 export async function createExam(data: CreateExamData) {
     // Validate time constraints
     if (data.startTime && data.endTime && data.startTime >= data.endTime) {
-        throw new Error('End time must be after start time');
+        throw Errors.BadRequest('End time must be after start time');
     }
 
+    // Sanitize inputs
+    const sanitizedData = {
+        ...data,
+        title: sanitizeString(data.title),
+        description: data.description ? sanitizeContent(data.description) : undefined
+    };
+
     return prisma.exam.create({
-        data,
+        data: sanitizedData,
         include: {
             creator: {
                 select: { id: true, name: true, email: true }
@@ -29,7 +37,7 @@ export async function createExam(data: CreateExamData) {
 }
 
 export async function getExamById(id: number, includeQuestions = false) {
-    return prisma.exam.findUnique({
+    const exam = await prisma.exam.findUnique({
         where: { id },
         include: {
             creator: {
@@ -51,6 +59,9 @@ export async function getExamById(id: number, includeQuestions = false) {
             }
         }
     });
+
+    if (!exam) throw Errors.NotFound('Exam not found');
+    return exam;
 }
 
 export async function listExams(filters?: {
@@ -58,8 +69,8 @@ export async function listExams(filters?: {
     status?: 'upcoming' | 'ongoing' | 'finished';
 }) {
     const now = new Date();
-
     const where: Record<string, unknown> = {};
+
     if (filters?.createdBy) where.createdBy = filters.createdBy;
 
     if (filters?.status === 'upcoming') {
@@ -91,8 +102,13 @@ export async function listExams(filters?: {
 }
 
 export async function updateExam(id: number, data: Partial<CreateExamData>) {
+    // Check if exam exists
+    const existing = await prisma.exam.findUnique({ where: { id } });
+    if (!existing) throw Errors.NotFound('Exam not found');
+
+    // Validate time constraints
     if (data.startTime && data.endTime && data.startTime >= data.endTime) {
-        throw new Error('End time must be after start time');
+        throw Errors.BadRequest('End time must be after start time');
     }
 
     // Check if exam has started attempts
@@ -101,12 +117,24 @@ export async function updateExam(id: number, data: Partial<CreateExamData>) {
     });
 
     if (hasAttempts > 0 && (data.shuffleQuestions !== undefined || data.shuffleOptions !== undefined)) {
-        throw new Error('Cannot change shuffle settings after exam has been attempted');
+        throw Errors.BadRequest('Cannot change shuffle settings after exam has been attempted');
     }
+
+    // Sanitize inputs
+    const sanitizedData: any = {};
+    if (data.title) sanitizedData.title = sanitizeString(data.title);
+    if (data.description !== undefined) {
+        sanitizedData.description = data.description ? sanitizeContent(data.description) : null;
+    }
+    if (data.startTime !== undefined) sanitizedData.startTime = data.startTime;
+    if (data.endTime !== undefined) sanitizedData.endTime = data.endTime;
+    if (data.durationMinutes !== undefined) sanitizedData.durationMinutes = data.durationMinutes;
+    if (data.shuffleQuestions !== undefined) sanitizedData.shuffleQuestions = data.shuffleQuestions;
+    if (data.shuffleOptions !== undefined) sanitizedData.shuffleOptions = data.shuffleOptions;
 
     return prisma.exam.update({
         where: { id },
-        data,
+        data: sanitizedData,
         include: {
             creator: {
                 select: { id: true, name: true, email: true }
@@ -116,13 +144,17 @@ export async function updateExam(id: number, data: Partial<CreateExamData>) {
 }
 
 export async function deleteExam(id: number) {
+    // Check if exam exists
+    const existing = await prisma.exam.findUnique({ where: { id } });
+    if (!existing) throw Errors.NotFound('Exam not found');
+
     // Check if exam has any attempts
     const hasAttempts = await prisma.userExam.count({
         where: { examId: id }
     });
 
     if (hasAttempts > 0) {
-        throw new Error('Cannot delete exam with existing attempts');
+        throw Errors.BadRequest('Cannot delete exam with existing attempts');
     }
 
     return prisma.$transaction([
@@ -137,7 +169,7 @@ export async function addQuestionsToExam(
     effectiveScores?: Record<string, number>
 ) {
     const exam = await prisma.exam.findUnique({ where: { id: examId } });
-    if (!exam) throw new Error('Exam not found');
+    if (!exam) throw Errors.NotFound('Exam not found');
 
     // Check if exam already has attempts
     const hasAttempts = await prisma.userExam.count({
@@ -145,7 +177,17 @@ export async function addQuestionsToExam(
     });
 
     if (hasAttempts > 0) {
-        throw new Error('Cannot add questions to exam that has been attempted');
+        throw Errors.BadRequest('Cannot add questions to exam that has been attempted');
+    }
+
+    // Verify all questions exist
+    const existingQuestions = await prisma.questionBank.findMany({
+        where: { id: { in: questionIds } },
+        select: { id: true }
+    });
+
+    if (existingQuestions.length !== questionIds.length) {
+        throw Errors.NotFound('Some questions do not exist');
     }
 
     // Get current max order number
@@ -178,12 +220,16 @@ export async function removeQuestionFromExam(examId: number, questionId: number)
     });
 
     if (hasAttempts > 0) {
-        throw new Error('Cannot remove questions from exam that has been attempted');
+        throw Errors.BadRequest('Cannot remove questions from exam that has been attempted');
     }
 
-    return prisma.examQuestion.delete({
-        where: {
-            examId_questionId: { examId, questionId }
-        }
+    const deleted = await prisma.examQuestion.deleteMany({
+        where: { examId, questionId }
     });
+
+    if (deleted.count === 0) {
+        throw Errors.NotFound('Question not found in exam');
+    }
+
+    return deleted;
 }

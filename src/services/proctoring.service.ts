@@ -1,23 +1,22 @@
 import prisma from '../client';
 import type { PrismaClient } from '../client';
 import type { ProctoringEventType } from '../types/prisma';
+import { Errors } from '../utils/errors';
 
+// Single event recording (existing)
 export async function recordProctoringEvent(data: {
     userExamId: number;
     eventType: ProctoringEventType;
     duration?: number;
     metadata?: any;
 }) {
-    // Check if exam session is in progress
     const userExam = await prisma.userExam.findFirst({
         where: { id: data.userExamId, status: 'IN_PROGRESS' }
     });
 
-    if (!userExam) throw new Error('Invalid or inactive exam session');
+    if (!userExam) throw Errors.BadRequest('Invalid or inactive exam session');
 
-    // Create event and update counters
     return await prisma.$transaction(async (tx: PrismaClient) => {
-        // Create event
         const event = await tx.proctoringEvent.create({
             data: {
                 userExamId: data.userExamId,
@@ -26,9 +25,7 @@ export async function recordProctoringEvent(data: {
             }
         });
 
-        // Update summary counters
         const updateData: any = {};
-
         switch (data.eventType) {
             case 'FACE_NOT_DETECTED':
                 updateData.faceNotDetectedSec = { increment: data.duration || 5 };
@@ -50,6 +47,48 @@ export async function recordProctoringEvent(data: {
     });
 }
 
+// Calculate proctoring score
+export function calculateProctoringScore(userExam: {
+    faceNotDetectedSec: number;
+    multipleFacesCount: number;
+    phoneDetectedCount: number;
+}): {
+    total: number;
+    breakdown: {
+        faceNotDetected: number;
+        multipleFaces: number;
+        phoneDetected: number;
+    };
+    severity: 'none' | 'low' | 'medium' | 'high' | 'critical';
+} {
+    const weights = {
+        faceNotDetected: 0.5,    // per second
+        multipleFaces: 15,       // per occurrence
+        phoneDetected: 25        // per occurrence
+    };
+
+    const breakdown = {
+        faceNotDetected: userExam.faceNotDetectedSec * weights.faceNotDetected,
+        multipleFaces: userExam.multipleFacesCount * weights.multipleFaces,
+        phoneDetected: userExam.phoneDetectedCount * weights.phoneDetected
+    };
+
+    const total = Math.min(100,
+        breakdown.faceNotDetected +
+        breakdown.multipleFaces +
+        breakdown.phoneDetected
+    );
+
+    const severity =
+        total === 0 ? 'none' :
+            total < 20 ? 'low' :
+                total < 40 ? 'medium' :
+                    total < 70 ? 'high' : 'critical';
+
+    return { total, breakdown, severity };
+}
+
+// Get stats (improved)
 export async function getProctoringStats(userExamId: number) {
     const userExam = await prisma.userExam.findUnique({
         where: { id: userExamId },
@@ -69,16 +108,12 @@ export async function getProctoringStats(userExamId: number) {
         }
     });
 
-    if (!userExam) throw new Error('Exam session not found');
+    if (!userExam) throw Errors.NotFound('Exam session not found');
 
-    // Calculate cheating score (simple formula)
-    const cheatingScore =
-        (userExam.faceNotDetectedSec * 0.1) +
-        (userExam.multipleFacesCount * 10) +
-        (userExam.phoneDetectedCount * 15);
+    const calculatedScore = calculateProctoringScore(userExam);
 
     return {
         ...userExam,
-        calculatedCheatingScore: Math.min(100, cheatingScore)
+        calculatedScore
     };
 }

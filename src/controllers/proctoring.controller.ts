@@ -27,4 +27,3 @@ export async function getStats(req: Request, res: Response, next: NextFunction) 
         return next(error);
     }
 }
-

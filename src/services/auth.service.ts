@@ -1,36 +1,42 @@
-// src/services/auth.service.ts
 import prisma from '../client';
 import { comparePassword, hashPassword } from '../utils/password';
 import { signAccessToken, generateRefreshToken, saveRefreshToken } from '../utils/jwt';
 import type { UserRole } from '../types/prisma';
 import * as verifySvc from './email-verification.service';
+import { AppError, Errors } from '../utils/errors';
+import { sanitizeEmail} from "../utils/sanitize";
 
 export const register = async (
     name: string,
     rawEmail: string,
     password: string,
-    _role?: UserRole,                 // abaikan role dari body (hanya bootstrap yg bisa ADMIN)
+    _role?: UserRole,
     adminBootstrapHeader?: string,
 ) => {
-    const email = rawEmail.toLowerCase();
+    const email = sanitizeEmail(rawEmail);
 
     const exists = await prisma.user.findUnique({ where: { email } });
-    if (exists) throw new Error('Email already registered');
+    if (exists) throw Errors.Conflict('Email already registered');
 
-    // ADMIN hanya via secret bootstrap; selain itu default PARTICIPANT
-    const isBootstrap = !!adminBootstrapHeader && adminBootstrapHeader === process.env.ADMIN_BOOTSTRAP_SECRET;
+    // ADMIN only via secret bootstrap
+    const isBootstrap = !!adminBootstrapHeader &&
+        adminBootstrapHeader === process.env.ADMIN_BOOTSTRAP_SECRET;
     const finalRole: UserRole = isBootstrap ? 'ADMIN' : 'PARTICIPANT';
 
     const passwordHash = await hashPassword(password);
     const user = await prisma.user.create({
-        data: { name, email, password: passwordHash, role: finalRole, isEmailVerified: false },
+        data: {
+            name: name.trim(),
+            email,
+            password: passwordHash,
+            role: finalRole,
+            isEmailVerified: false
+        },
     });
 
-    // Kirim verifikasi (non-fatal)
+    // Send verification (non-fatal)
     verifySvc.sendVerificationEmail(user.id).catch((err) => {
-        // hindari jatuhin flow register karena SMTP
-        // eslint-disable-next-line no-console
-        console.warn('Verification email failed:', (err as any)?.message);
+        console.warn('Verification email failed:', (err as Error)?.message);
     });
 
     const access = signAccessToken({
@@ -45,24 +51,29 @@ export const register = async (
     await saveRefreshToken(user.id, refresh);
 
     return {
-        user: { id: user.id, name: user.name, email: user.email, role: user.role, isEmailVerified: user.isEmailVerified },
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            isEmailVerified: user.isEmailVerified
+        },
         tokens: { access, refresh },
     };
 };
 
 export const login = async (rawEmail: string, password: string) => {
-    const email = rawEmail.toLowerCase();
+    const email = sanitizeEmail(rawEmail);
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) throw new Error('Invalid credentials');
+    if (!user) throw Errors.Unauthorized('Invalid credentials');
 
     const ok = await comparePassword(password, user.password);
-    if (!ok) throw new Error('Invalid credentials');
+    if (!ok) throw Errors.Unauthorized('Invalid credentials');
 
+    // Check email verification if required
     if (process.env.REQUIRE_EMAIL_VERIFIED_FOR_LOGIN === 'true' && !user.isEmailVerified) {
-        const err: any = new Error('Email not verified');
-        err.code = 'EMAIL_NOT_VERIFIED';
-        throw err;
+        throw new AppError('Email not verified', 403, 'EMAIL_NOT_VERIFIED');
     }
 
     const access = signAccessToken({
@@ -77,7 +88,13 @@ export const login = async (rawEmail: string, password: string) => {
     await saveRefreshToken(user.id, refresh);
 
     return {
-        user: { id: user.id, name: user.name, email: user.email, role: user.role, isEmailVerified: user.isEmailVerified },
+        user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            isEmailVerified: user.isEmailVerified
+        },
         tokens: { access, refresh },
     };
 };

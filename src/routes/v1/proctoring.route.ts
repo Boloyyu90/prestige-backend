@@ -6,12 +6,14 @@ import * as v from '../../validations/proctoring.validation';
 
 const router = Router();
 
+// Single event recording
 router.post('/session/:userExamId/event',
     auth('takeExam'),
     validate(v.recordProctoringEventSchema),
     c.recordEvent
 );
 
+// Get stats
 router.get('/session/:userExamId/stats',
     auth('viewProctoringEvents'),
     c.getStats
