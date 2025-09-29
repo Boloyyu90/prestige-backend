@@ -1,5 +1,5 @@
 import 'express';
-import type { UserRole } from '@prisma/client';
+import type { UserRole } from './prisma';
 
 declare global {
     namespace Express {

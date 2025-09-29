@@ -2,7 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { isAppError, createPrismaError, normalizeError } from '../utils/errors';
 import { ZodError } from 'zod';
-import { Prisma } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
 export function errorHandler(
     err: unknown,
@@ -19,7 +19,7 @@ export function errorHandler(
     }
 
     // Handle Prisma errors
-    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err instanceof PrismaClientKnownRequestError) {
         const appError = createPrismaError(err);
         return res.status(appError.statusCode).json(appError.toJSON());
     }

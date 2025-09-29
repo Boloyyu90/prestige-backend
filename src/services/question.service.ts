@@ -1,5 +1,5 @@
 import prisma from '../client';
-import { QuestionType } from '@prisma/client';
+import type { QuestionType } from '../types/prisma';
 
 interface CreateQuestionData {
     content: string;

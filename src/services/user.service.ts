@@ -1,6 +1,7 @@
 import prisma from '../client';
+import type { PrismaClient } from '../client';
 import { hashPassword } from '../utils/password';
-import type { Prisma, UserRole } from '@prisma/client';
+import type { UserRole } from '../types/prisma';
 
 export const createUser = async (args: {
     name: string;
@@ -56,7 +57,7 @@ export const updateUser = async (
         data.email = normalizedEmail;
     }
 
-    const patch: Prisma.UserUpdateInput = {};
+    const patch: Record<string, unknown> = {};
     if (data.name) patch.name = data.name;
     if (data.email) patch.email = data.email;
     if (data.password) patch.password = await hashPassword(data.password);
@@ -72,7 +73,7 @@ export const updateUser = async (
  * P0: Hapus user aman terhadap relasi (tokens, user_exams, exams, exam_questions)
  */
 export const deleteUser = async (id: number) => {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: PrismaClient) => {
         // 1) tokens
         await tx.token.deleteMany({ where: { userId: id } });
 
@@ -80,9 +81,9 @@ export const deleteUser = async (id: number) => {
         await tx.userExam.deleteMany({ where: { userId: id } });
 
         // 3) exam milik user + exam_questions
-        const exams = await tx.exam.findMany({ where: { createdBy: id }, select: { id: true } });
+        const exams = await tx.exam.findMany({ where: { createdBy: id }, select: { id: true } }) as Array<{ id: number }>;
         if (exams.length) {
-            const examIds = exams.map((e) => e.id);
+            const examIds = exams.map((exam) => exam.id);
             await tx.examQuestion.deleteMany({ where: { examId: { in: examIds } } });
             await tx.exam.deleteMany({ where: { id: { in: examIds } } });
         }

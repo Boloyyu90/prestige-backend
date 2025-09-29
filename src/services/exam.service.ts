@@ -59,7 +59,7 @@ export async function listExams(filters?: {
 }) {
     const now = new Date();
 
-    const where: Prisma.ExamWhereInput = {};
+    const where: Record<string, unknown> = {};
     if (filters?.createdBy) where.createdBy = filters.createdBy;
 
     if (filters?.status === 'upcoming') {

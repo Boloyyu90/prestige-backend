@@ -1,9 +1,10 @@
 import prisma from '../client';
-import { ExamStatus } from '@prisma/client';
+import type { PrismaClient } from '../client';
+import type { ExamStatus } from '../types/prisma';
 import { scoreOneAnswer } from './scoring.util';
 
 export const startExam = async (userId: number, examId: number) => {
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: PrismaClient) => {
         // Ambil attempt terakhir user untuk exam ini
         const latest = await tx.userExam.findFirst({
             where: { userId, examId },
@@ -20,7 +21,7 @@ export const startExam = async (userId: number, examId: number) => {
                 userId,
                 examId,
                 attemptNumber: nextAttempt,
-                status: ExamStatus.IN_PROGRESS,
+                status: 'IN_PROGRESS' as ExamStatus,
                 startedAt: new Date()
             },
             select: { id: true, attemptNumber: true, startedAt: true }
@@ -140,7 +141,7 @@ export async function finishExam(userId: number, userExamId: number, forceFinish
 
     // Calculate total score
     const totalScore = userExam.answers.reduce(
-        (sum, answer) => sum + (answer.obtainedScore || 0),
+        (sum: number, answer: { obtainedScore: number | null }) => sum + (answer.obtainedScore || 0),
         0
     );
 

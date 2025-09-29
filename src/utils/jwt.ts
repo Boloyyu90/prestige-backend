@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { addDays, isAfter } from 'date-fns';
 import prisma from '../client';
 import { config } from '../config/config';
-import type { UserRole } from '@prisma/client';
+import type { UserRole } from '../types/prisma';
 
 
 /**

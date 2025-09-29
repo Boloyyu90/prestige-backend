@@ -35,6 +35,9 @@ export function normalizeError(error: unknown): AppError {
     if (error instanceof Error) {
         return new AppError(error.message);
     }
+    if (typeof error === 'string') {
+        return new AppError(error);
+    }
     return new AppError('Unknown error');
 }
 

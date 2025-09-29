@@ -1,5 +1,6 @@
 import prisma from '../client';
-import { ProctoringEventType } from '@prisma/client';
+import type { PrismaClient } from '../client';
+import type { ProctoringEventType } from '../types/prisma';
 
 export async function recordProctoringEvent(data: {
     userExamId: number;
@@ -15,7 +16,7 @@ export async function recordProctoringEvent(data: {
     if (!userExam) throw new Error('Invalid or inactive exam session');
 
     // Create event and update counters
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: PrismaClient) => {
         // Create event
         const event = await tx.proctoringEvent.create({
             data: {

@@ -2,7 +2,7 @@
 import prisma from '../client';
 import { comparePassword, hashPassword } from '../utils/password';
 import { signAccessToken, generateRefreshToken, saveRefreshToken } from '../utils/jwt';
-import type { UserRole} from '@prisma/client';
+import type { UserRole } from '../types/prisma';
 import * as verifySvc from './email-verification.service';
 
 export const register = async (

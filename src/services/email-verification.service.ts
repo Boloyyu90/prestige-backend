@@ -1,4 +1,5 @@
 import prisma from '../client';
+import type { PrismaClient } from '../client';
 import crypto from 'crypto';
 import { addHours, isAfter } from 'date-fns';
 import { sendMail, verificationEmailTemplate } from '../utils/mailer';
@@ -57,7 +58,7 @@ export async function verifyEmail(userId: number, rawToken: string) {
     const tokenHash = sha256(rawToken);
 
     // Use transaction from the start to prevent race condition
-    return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx: PrismaClient) => {
         const token = await tx.token.findFirst({
             where: { userId, type: 'VERIFY_EMAIL', tokenHash, blacklisted: false },
         });
