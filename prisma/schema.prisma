@@ -69,9 +69,9 @@ model User {
 
 model QuestionBank {
   id            Int          @id @default(autoincrement())
-  content       String
+  content       String       @db.Text
   options       Json
-  correctAnswer String       @map("correct_answer")
+  correctAnswer Json         @map("correct_answer")
   defaultScore  Int          @default(5) @map("default_score")
   questionType  QuestionType @default(TIU) @map("question_type")
   createdAt     DateTime     @default(now()) @map("created_at")
@@ -84,8 +84,8 @@ model QuestionBank {
 
 model Exam {
   id               Int       @id @default(autoincrement())
-  title            String
-  description      String?
+  title            String    @db.VarChar(200)
+  description      String?   @db.Text
   startTime        DateTime? @map("start_time")
   endTime          DateTime? @map("end_time")
   durationMinutes  Int?      @map("duration_minutes")
@@ -97,11 +97,12 @@ model Exam {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   examQuestions ExamQuestion[]
-  creator       User           @relation("ExamCreator", fields: [createdBy], references: [id])
+  creator       User           @relation("ExamCreator", fields: [createdBy], references: [id], onDelete: Cascade)
   userExams     UserExam[]
 
   @@index([createdBy])
   @@index([startTime])
+  @@index([endTime])
   @@map("exams")
 }
 
@@ -109,7 +110,7 @@ model ExamQuestion {
   id             Int      @id @default(autoincrement())
   examId         Int      @map("exam_id")
   questionId     Int      @map("question_id")
-  orderNumber    Int?     @map("order_number")
+  orderNumber    Int      @map("order_number")
   // Snapshot bobot untuk exam ini (fallback jika ingin "bekukan" skor)
   effectiveScore Int?     @map("effective_score")
   answers        Answer[]
@@ -136,9 +137,9 @@ model UserExam {
   updatedAt     DateTime   @updatedAt @map("updated_at")
 
   // --- Ringkasan proctoring langsung di sesi (tanpa tabel terpisah)
-  faceNotDetectedSec Int?   @default(0) @map("face_not_detected_sec")
-  multipleFacesCount Int?   @default(0) @map("multiple_faces_count")
-  phoneDetectedCount Int?   @default(0) @map("phone_detected_count")
+  faceNotDetectedSec Int    @default(0) @map("face_not_detected_sec")
+  multipleFacesCount Int    @default(0) @map("multiple_faces_count")
+  phoneDetectedCount Int    @default(0) @map("phone_detected_count")
   cheatingScore      Float? @map("cheating_score")
 
   answers          Answer[]
@@ -167,6 +168,7 @@ model Answer {
 
   @@unique([userExamId, examQuestionId])
   @@index([userExamId, answeredAt])
+  @@index([examQuestionId])
   @@map("answers")
 }
 
@@ -187,7 +189,7 @@ model ProctoringEvent {
 // Token tetap ada untuk opsi refresh; nonaktifkan di kode jika ingin pure access-token
 model Token {
   id          Int       @id @default(autoincrement())
-  tokenHash   String
+  tokenHash   String    @map("token_hash")
   type        TokenType
   expires     DateTime
   blacklisted Boolean   @default(false)
@@ -199,5 +201,6 @@ model Token {
   @@unique([tokenHash, type])
   @@index([userId])
   @@index([type])
+  @@index([expires])
   @@map("tokens")
 }

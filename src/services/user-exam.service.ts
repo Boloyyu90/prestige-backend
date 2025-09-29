@@ -1,182 +1,114 @@
 import prisma from '../client';
 import { ExamStatus } from '@prisma/client';
+import { scoreOneAnswer } from './scoring.util';
 
-export async function startExam(userId: number, examId: number) {
-    // Check if exam exists and is available
-    const exam = await prisma.exam.findUnique({
-        where: { id: examId },
-        include: {
-            examQuestions: {
-                include: { question: true },
-                orderBy: { orderNumber: 'asc' }
-            }
-        }
-    });
-
-    if (!exam) throw new Error('Exam not found');
-    if (exam.examQuestions.length === 0) throw new Error('Exam has no questions');
-
-    const now = new Date();
-
-    // Check time constraints
-    if (exam.startTime && now < exam.startTime) {
-        throw new Error('Exam has not started yet');
-    }
-    if (exam.endTime && now > exam.endTime) {
-        throw new Error('Exam has ended');
-    }
-
-    // Get current attempt number
-    const lastAttempt = await prisma.userExam.findFirst({
-        where: { userId, examId },
-        orderBy: { attemptNumber: 'desc' }
-    });
-
-    const attemptNumber = (lastAttempt?.attemptNumber ?? 0) + 1;
-
-    // Check if previous attempt is finished
-    if (lastAttempt && lastAttempt.status === 'IN_PROGRESS') {
-        throw new Error('Previous attempt is still in progress');
-    }
-
-    // Create new user exam session
-    const userExam = await prisma.userExam.create({
-        data: {
-            userId,
-            examId,
-            attemptNumber,
-            startedAt: now,
-            status: 'IN_PROGRESS'
-        },
-        include: {
-            exam: {
-                include: {
-                    examQuestions: {
-                        include: { question: true },
-                        orderBy: { orderNumber: 'asc' }
-                    }
-                }
-            }
-        }
-    });
-
-    // Shuffle questions if needed
-    let questions = userExam.exam.examQuestions;
-    if (exam.shuffleQuestions) {
-        questions = [...questions].sort(() => Math.random() - 0.5);
-    }
-
-    // Shuffle options if needed
-    if (exam.shuffleOptions) {
-        questions = questions.map(eq => {
-            if (Array.isArray(eq.question.options)) {
-                return {
-                    ...eq,
-                    question: {
-                        ...eq.question,
-                        options: [...eq.question.options].sort(() => Math.random() - 0.5)
-                    }
-                };
-            }
-            return eq;
+export const startExam = async (userId: number, examId: number) => {
+    return await prisma.$transaction(async (tx) => {
+        // Ambil attempt terakhir user untuk exam ini
+        const latest = await tx.userExam.findFirst({
+            where: { userId, examId },
+            orderBy: { attemptNumber: 'desc' },
+            select: { attemptNumber: true }
         });
-    }
+        const nextAttempt = (latest?.attemptNumber ?? 0) + 1;
 
-    return {
-        userExamId: userExam.id,
-        attemptNumber: userExam.attemptNumber,
-        startedAt: userExam.startedAt,
-        exam: {
-            ...exam,
-            examQuestions: questions
-        }
-    };
-}
+        // Optional: validasi jadwal/waktu exam di sini (startTime, endTime)
 
-export async function submitAnswer(
-    userId: number,
-    userExamId: number,
-    examQuestionId: number,
-    selectedAnswer: any
-) {
-    // Verify user owns this exam session
-    const userExam = await prisma.userExam.findFirst({
-        where: {
-            id: userExamId,
-            userId,
-            status: 'IN_PROGRESS'
-        }
+        // Buat attempt
+        const ue = await tx.userExam.create({
+            data: {
+                userId,
+                examId,
+                attemptNumber: nextAttempt,
+                status: ExamStatus.IN_PROGRESS,
+                startedAt: new Date()
+            },
+            select: { id: true, attemptNumber: true, startedAt: true }
+        });
+
+        // Optional: jika butuh mengunci urutan soal per-attempt, generate mapping di sini
+
+        return ue;
     });
+};
 
-    if (!userExam) throw new Error('Invalid exam session');
+export const submitAnswer = async (params: {
+    userId: number;
+    userExamId: number;
+    examQuestionId: number;
+    selectedAnswer: any;
+}) => {
+    const { userId, userExamId, examQuestionId, selectedAnswer } = params;
 
-    // Check if exam duration exceeded
-    if (userExam.exam.durationMinutes && userExam.startedAt) {
-        const elapsed = Date.now() - userExam.startedAt.getTime();
-        const maxDuration = userExam.exam.durationMinutes * 60 * 1000;
-
-        if (elapsed > maxDuration) {
-            // Auto finish exam
-            await finishExam(userId, userExamId, true);
-            throw new Error('Exam time exceeded');
-        }
-    }
-
-    // Get question details
-    const examQuestion = await prisma.examQuestion.findUnique({
-        where: { id: examQuestionId },
-        include: { question: true }
-    });
-
-    if (!examQuestion) throw new Error('Question not found');
-    if (examQuestion.examId !== userExam.examId) throw new Error('Question not in this exam');
-
-    // Calculate score based on question type
-    let isCorrect: boolean | null = null;
-    let obtainedScore = 0;
-
-    const question = examQuestion.question;
-
-    if (question.questionType === 'TKP') {
-        // TKP: Score from options weight
-        if (typeof question.options === 'object' && question.options !== null) {
-            const answerKey = selectedAnswer?.option || selectedAnswer;
-            const optionData = (question.options as any)[answerKey];
-            obtainedScore = optionData?.score || 0;
-        }
-    } else {
-        // TIU/TWK: Binary correct/incorrect
-        const answerKey = selectedAnswer?.option || selectedAnswer;
-        isCorrect = answerKey === question.correctAnswer;
-
-        if (isCorrect) {
-            obtainedScore = examQuestion.effectiveScore || question.defaultScore;
-        }
-    }
-
-    // Upsert answer
-    return prisma.answer.upsert({
-        where: {
-            userExamId_examQuestionId: {
-                userExamId,
-                examQuestionId
+    await prisma.$transaction(async (tx) => {
+        // Ambil userExam + minimal field exam untuk validasi waktu
+        const userExam = await tx.userExam.findFirst({
+            where: { id: userExamId, userId, status: 'IN_PROGRESS' },
+            select: {
+                id: true,
+                startedAt: true,
+                exam: { select: { durationMinutes: true, startTime: true, endTime: true } }
             }
-        },
-        create: {
-            userExamId,
-            examQuestionId,
-            selectedAnswer,
-            isCorrect,
-            obtainedScore
-        },
-        update: {
-            selectedAnswer,
-            isCorrect,
-            obtainedScore,
-            answeredAt: new Date()
+        });
+        if (!userExam) throw new Error('UserExam not found or not in progress');
+
+        // Guard waktu
+        const now = new Date();
+        const durationMs = (userExam.exam?.durationMinutes ?? 0) * 60_000;
+        const byEndTimeMs =
+            userExam.exam?.endTime && userExam.exam?.startTime
+                ? userExam.exam.endTime.getTime() - userExam.exam.startTime.getTime()
+                : 0;
+        const maxMs = durationMs || byEndTimeMs;
+
+        if (userExam.startedAt && maxMs > 0) {
+            const elapsed = now.getTime() - userExam.startedAt.getTime();
+            if (elapsed > maxMs) {
+                await tx.userExam.update({
+                    where: { id: userExam.id },
+                    data: { status: 'FINISHED', finishedAt: now }
+                });
+                throw new Error('Exam time exceeded');
+            }
         }
+
+        // Ambil info soal untuk skoring minimum (jenis, skor, kunci, opsi)
+        const eq = await tx.examQuestion.findUnique({
+            where: { id: examQuestionId },
+            select: {
+                effectiveScore: true,
+                question: { select: { questionType: true, defaultScore: true, correctAnswer: true, options: true } }
+            }
+        });
+        if (!eq) throw new Error('ExamQuestion not found');
+
+        const { obtainedScore, normalizedAnswerJson } = scoreOneAnswer({
+            questionType: eq.question.questionType,
+            effectiveScore: eq.effectiveScore,
+            defaultScore: eq.question.defaultScore,
+            selectedAnswer,
+            options: eq.question.options,
+            correctAnswer: eq.question.correctAnswer
+        });
+
+        // Upsert jawaban (idempotent)
+        await tx.answer.upsert({
+            where: { userExamId_examQuestionId: { userExamId, examQuestionId } },
+            create: {
+                userExamId,
+                examQuestionId,
+                selectedAnswer: normalizedAnswerJson,
+                obtainedScore,
+                answeredAt: now
+            },
+            update: {
+                selectedAnswer: normalizedAnswerJson,
+                obtainedScore,
+                answeredAt: now
+            }
+        });
     });
-}
+};
 
 export async function finishExam(userId: number, userExamId: number, forceFinish = false) {
     const userExam = await prisma.userExam.findFirst({
