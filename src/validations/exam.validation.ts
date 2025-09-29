@@ -45,7 +45,7 @@ export const startExamSchema = z.object({
 
 export const submitAnswerSchema = z.object({
     params: z.object({
-        examId: z.string().regex(/^\d+$/),
+        userExamId: z.string().regex(/^\d+$/),
         questionId: z.string().regex(/^\d+$/)
     }),
     body: z.object({
@@ -56,7 +56,7 @@ export const submitAnswerSchema = z.object({
 
 export const finishExamSchema = z.object({
     params: z.object({
-        examId: z.string().regex(/^\d+$/)
+        userExamId: z.string().regex(/^\d+$/)
     }),
     body: z.object({
         forceFinish: z.boolean().optional()

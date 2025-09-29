@@ -4,7 +4,7 @@ import type { QuestionType } from '../types/prisma';
 interface CreateQuestionData {
     content: string;
     options: any; // Json
-    correctAnswer: string;
+    correctAnswer: any;
     defaultScore?: number;
     questionType: QuestionType;
 }
