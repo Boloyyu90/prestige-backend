@@ -1,11 +1,42 @@
 import prisma from '../client';
 import type { PrismaClient } from '../client';
 import type { ExamStatus } from '../types/prisma';
-import { scoreOneAnswer } from './scoring.util';
+import { Errors } from '../utils/errors';
 
-export const startExam = async (userId: number, examId: number) => {
-    return await prisma.$transaction(async (tx: PrismaClient) => {
-        // Ambil attempt terakhir user untuk exam ini
+export const startExam = async (userId: number, examId: number, client: PrismaClient = prisma) => {
+    return await client.$transaction(async (tx: PrismaClient) => {
+        const exam = await tx.exam.findUnique({ where: { id: examId } });
+        if (!exam) {
+            throw Errors.NotFound('Exam not found');
+        }
+
+        const now = new Date();
+
+        const examStatus = (exam as { status?: string }).status;
+        if (examStatus && examStatus !== 'IN_PROGRESS') {
+            throw Errors.BadRequest('Exam is not available');
+        }
+
+        if (exam.startTime && now < exam.startTime) {
+            throw Errors.BadRequest('Exam has not started yet');
+        }
+
+        const windowEndCandidates: number[] = [];
+
+        if (exam.endTime) {
+            windowEndCandidates.push(exam.endTime.getTime());
+        }
+
+        if (exam.durationMinutes && exam.startTime) {
+            windowEndCandidates.push(exam.startTime.getTime() + exam.durationMinutes * 60 * 1000);
+        }
+
+        if (windowEndCandidates.length > 0) {
+            const earliestEnd = Math.min(...windowEndCandidates);
+            if (now.getTime() >= earliestEnd) {
+                throw Errors.BadRequest('Exam has ended');
+            }
+        }
         const latest = await tx.userExam.findFirst({
             where: { userId, examId },
             orderBy: { attemptNumber: 'desc' },
